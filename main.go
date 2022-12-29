@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -18,12 +19,12 @@ import (
 func main() {
 
 	hostname := hostname()
-	ipAddresses := ipAddress()
-	ipAddress := ipAddresses[0]
+	ipAddress := ipAddress()
 	memoryUtilization := memoryUtilization()
 	diskUtilization := CDiskUtilization()
 	localUsers := localUsers()
 	runningProcesses := runningProcesses()
+	installedApplications := installedApplications()
 
 	fmt.Println("Hostname:", hostname)
 	fmt.Println("IP address:", ipAddress)
@@ -31,8 +32,9 @@ func main() {
 	fmt.Printf("C disk utilization: %.2f%%\n", diskUtilization)
 	fmt.Print(localUsers)
 	fmt.Print(runningProcesses)
+	fmt.Print(installedApplications)
 
-	sqlLite(hostname, ipAddress, memoryUtilization, diskUtilization, localUsers, runningProcesses)
+	sqlLite(hostname, ipAddress, memoryUtilization, diskUtilization, localUsers, runningProcesses, installedApplications)
 }
 
 func hostname() string {
@@ -43,7 +45,7 @@ func hostname() string {
 	return hostname
 }
 
-func ipAddress() []string {
+func ipAddress() string {
 	var ips []string
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -67,7 +69,7 @@ func ipAddress() []string {
 			ips = append(ips, ip.String())
 		}
 	}
-	return ips
+	return fmt.Sprintf("%v", ips)
 }
 
 func memoryUtilization() float64 {
@@ -97,7 +99,7 @@ func localUsers() string {
 	cmd.Stdout = &out
 	err := cmd.Run()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 
 	return out.String()
@@ -109,13 +111,29 @@ func runningProcesses() string {
 	cmd.Stdout = &out
 	err := cmd.Run()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 
 	return out.String()
 }
 
-func sqlLite(hostname string, ipAddress string, memoryUtilization float64, diskUtilization float64, localUsers string, runningProcesses string) {
+func installedApplications() string {
+	cmd := exec.Command("wmic", "product", "get", "name")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Split the output by newline characters to get a list of installed applications
+	apps := strings.Split(out.String(), "\n")
+	// Remove the first and last elements, which are the column headers and an empty string
+	apps = apps[1 : len(apps)-1]
+	return fmt.Sprintf("%v", apps)
+}
+
+func sqlLite(hostname string, ipAddress string, memoryUtilization float64, diskUtilization float64, localUsers string, runningProcesses string, installedApplications string) {
 	db, err := sql.Open("sqlite3", "./database.db")
 	if err != nil {
 		log.Println(err)
@@ -129,14 +147,15 @@ func sqlLite(hostname string, ipAddress string, memoryUtilization float64, diskU
 		memory_utilization REAL,
 		c_disk_utilization REAL,
 		local_users TEXT,
-		running_processes TEXT
+		running_processes TEXT,
+		installed_applications TEXT
 	)`)
 	if err != nil {
 		log.Println(err)
 	}
 
-	_, err = db.Exec(`INSERT INTO data (hostname, ip_address, memory_utilization, c_disk_utilization, local_users, running_processes)
-    VALUES (?, ?, ?, ?, ?, ?)`, hostname, ipAddress, memoryUtilization, diskUtilization, localUsers, runningProcesses)
+	_, err = db.Exec(`INSERT INTO data (hostname, ip_address, memory_utilization, c_disk_utilization, local_users, running_processes, installed_applications)
+    VALUES (?, ?, ?, ?, ?, ?)`, hostname, ipAddress, memoryUtilization, diskUtilization, localUsers, runningProcesses, installedApplications)
 	if err != nil {
 		log.Println(err)
 	}
